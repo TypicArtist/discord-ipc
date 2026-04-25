@@ -1,7 +1,9 @@
 package net.typicartist.discordipc;
 
+import java.util.Deque;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.json.JSONException;
@@ -9,19 +11,24 @@ import org.json.JSONObject;
 
 import net.typicartist.discordipc.connection.Connection;
 import net.typicartist.discordipc.data.Packet;
-import net.typicartist.discordipc.data.RichPresense;
+import net.typicartist.discordipc.data.RichPresence;
 import net.typicartist.discordipc.enums.Command;
 import net.typicartist.discordipc.enums.Event;
 import net.typicartist.discordipc.enums.Opcode;
 
 public class IPCClient {
+    private static final long RECOONECT_DELAY_MS = 5000;
+    private static final long IO_INTERVAL_MS = 50;
+    private static final long READ_RETRY_DELAY_MS = 100;
+
     private final long clientId;
     private Connection connection;
     private IPCListener listener;
 
-    private final Queue<Packet> outgoing = new ConcurrentLinkedQueue<>();
+    private final Deque<Packet> outgoing = new ConcurrentLinkedDeque<>();
     private final Queue<Packet> incoming = new ConcurrentLinkedQueue<>();
 
+    private volatile boolean running = false;
     private Thread ioThread;
     private Thread readThread;
 
@@ -29,74 +36,62 @@ public class IPCClient {
         this.clientId = clientId;
     }
 
-    public synchronized void connect() {
-        if (connection != null && connection.isOpen()) {
-            throw new IllegalStateException("Already connected.");
+    public void connect() {
+        if (running) {
+            throw new IllegalStateException("Already connected or connecting.");
         }
 
         connection = Connection.create(this, clientId);
         connection.setListener(listener);
 
+        running = true;
         startThreads();
     }
 
-    public synchronized void shutdown() {
-        if (connection != null && !connection.isOpen()) {
-            throw new IllegalStateException("IPCClient (ID: " + clientId + ") is not connected!");
-        }
+    public void shutdown() {
+        running = false;
+        if (ioThread != null) ioThread.interrupt();
+        if (readThread != null ) readThread.interrupt();
 
-        if (ioThread != null && ioThread.isAlive()) {
-            ioThread.interrupt();
-        }
         try {
             if (connection != null) connection.close();
         } catch (Exception ignored) {}
     }
 
     public void subscribe(Event event) {
-        if (connection != null && !connection.isOpen()) {
-            throw new IllegalStateException("IPCClient (ID: " + clientId + ") is not connected!");
-        }
-
+        ensureConnected();
         try {
             if (event.isSubscribable()) {
-                JSONObject data = new JSONObject()
-                                        .put("cmd", Command.SUBSCRIBE.name())
-                                        .put("evt", event.name());
-                outgoing.offer(new Packet(Opcode.Frame, data));
+                outgoing.add(new Packet(Opcode.Frame, new JSONObject()
+                        .put("cmd", Command.SUBSCRIBE.name())
+                        .put("evt", event.name())
+                ));
             }
-        } catch (JSONException ignored) {}
+        } catch (JSONException e) { e.printStackTrace(); }
     }
 
     public void unsubscribe(Event event) {
-        if (connection != null && !connection.isOpen()) {
-            throw new IllegalStateException("IPCClient (ID: " + clientId + ") is not connected!");
-        }
-
+        ensureConnected();
         try {
             if (event.isSubscribable()) {
-                JSONObject data = new JSONObject()
-                                        .put("cmd", Command.UNSUBSCRIBE.name())
-                                        .put("evt", event.name());
-                outgoing.offer(new Packet(Opcode.Frame, data));
+                outgoing.add(new Packet(Opcode.Frame, new JSONObject()
+                        .put("cmd", Command.UNSUBSCRIBE.name())
+                        .put("evt", event.name())
+                ));
             }
-        } catch (JSONException ignored) {}
+        } catch (JSONException e) { e.printStackTrace(); }
     }
 
-    public void updatePresence(RichPresense presense) {
-        if (connection != null && !connection.isOpen()) {
-            throw new IllegalStateException("IPCClient (ID: " + clientId + ") is not connected!");
-        }                                
-
+    public void updatePresence(RichPresence presense) {
+        ensureConnected();
         try {
-            JSONObject data = new JSONObject()
-                                    .put("cmd", Command.SET_ACTIVITY.name())
-                                    .put("args", new JSONObject()
-                                            .put("pid", getPid())
-                                            .put("activity", presense.toJson()));
-            Packet packet = new Packet(Opcode.Frame, data);
-            outgoing.offer(packet);
-        } catch (JSONException ignored) { ignored.printStackTrace(); }
+            outgoing.add(new Packet(Opcode.Frame, new JSONObject()
+                    .put("cmd", Command.SET_ACTIVITY.name())
+                    .put("args", new JSONObject()
+                            .put("pid", getPid())
+                            .put("activity", presense.toJson()))
+            ));
+        } catch (JSONException e) { e.printStackTrace(); }
     }
 
     public void setListener(IPCListener listener) {
@@ -106,70 +101,113 @@ public class IPCClient {
         }
     }
 
+    private void ensureConnected() {
+        if (connection == null || !connection.isOpen()) {
+            throw new IllegalStateException("IPCClient (ID: " + clientId +  ") is not connected!");
+        }
+    }
+
     private void startThreads() {
-        readThread = new Thread(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
-                if (connection == null || !connection.isOpen()) continue;
-
-                try {
-                    Packet packet = connection.readPacket();
-                    if (packet == null) continue;
-                    if (packet.getOp() == Opcode.Close) {
-                        if (listener != null) {
-                            listener.onDisconnected(this, "Received Close opcode");
-                        }
-                        break;
-                    }
-                    incoming.offer(packet);
-                } catch (Exception e) {
-                    if (listener != null) listener.onError(this, e.getMessage());
-                }
-            }
-        }, "Discord-IPC-Reader");
-
         ioThread = new Thread(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
-                if (connection == null) return;
-
+            while (running) {
                 try {
-                    synchronized (connection) {
-                        if (!connection.isOpen()) connection.open();
+                    if (!connection.isOpen()) {
+                        try {
+                            connection.open();
+                        } catch (Exception e) {
+                            if (listener != null) listener.onError(this, "Reconnect failed: " + e.getMessage());
+                            
+                            Thread.sleep(RECOONECT_DELAY_MS);
+                            continue;
+                        }
                     }
 
                     Packet in;
                     while ((in = incoming.poll()) != null) {
-                        JSONObject json = in.getJson();
-                        Event evt = Event.of(json.optString("evt"));
+                        try {
+                            JSONObject json = in.getJson();
+                            Event evt = Event.of(json.optString("evt"));
+                            String nonce = json.optString("nonce", null);
 
-                        switch (evt) {
-                            default:
-                                break;
-                        }
-                    }
-
-                    Packet out;
-                    while ((out = outgoing.poll()) != null) {
-                        synchronized (connection) {
-                            if (!connection.sendPacket(out)) {
-                                outgoing.offer(out);
-                                break;
+                            if (listener != null) {
+                                listener.onPacketReceived(this, in);
                             }
+
+                            switch (evt) {
+                                case ERROR:
+                                    break;
+                                case ACTIVITY_JOIN:
+                                    break;
+                                case ACTIVITY_SPECTATE:
+                                    break;
+                                case ACTIVITY_JOIN_REQUEST:
+                                    break;
+                                case UNKNOWN:
+                                    break;
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
                         }
                     }
-                } catch (Exception e) {
-                    if (listener != null) {
-                        listener.onError(this, e.getMessage());
+
+                    while (!(outgoing.isEmpty())) {
+                        Packet out = outgoing.peek();
+                        if (connection.sendPacket(out)) {
+                            outgoing.poll();
+                        } else {
+                            break;
+                        }
                     }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    if (listener != null) listener.onError(this, e.getMessage());
                 } finally {
                     try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException ignored) {}
+                        Thread.sleep(IO_INTERVAL_MS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }, "Discord-IPC-IO");
 
-        readThread.start();
+        readThread = new Thread(() -> {
+            while (running) {
+                if (!connection.isOpen()) {
+                    try { Thread.sleep(READ_RETRY_DELAY_MS); } catch (InterruptedException e) { 
+                        Thread.currentThread().interrupt(); 
+                        break;
+                    }
+                    continue;
+                }
+
+                try {
+                    Packet packet = connection.readPacket();
+                    if (packet != null) {
+                        incoming.offer(packet);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    if (running && listener != null) {
+                        listener.onError(this, "Read error: " + e.getMessage());
+                    }
+                    try { Thread.sleep(READ_RETRY_DELAY_MS);} catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }, "Discord-IPC-Reader");
+
+        ioThread.setDaemon(true);
         ioThread.start();
+        readThread.setDaemon(true);
+        readThread.start();
     }
 
     public static long getPid() {

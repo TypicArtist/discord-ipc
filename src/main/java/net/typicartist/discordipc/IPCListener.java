@@ -1,5 +1,6 @@
 package net.typicartist.discordipc;
 
+import net.typicartist.discordipc.data.Packet;
 import net.typicartist.discordipc.data.User;
 
 public interface IPCListener {
@@ -9,4 +10,6 @@ public interface IPCListener {
     default void onJoinGame(IPCClient client, String secret) {}
     default void onSpectateGame(IPCClient client, String secret) {}
     default void onJoinRequest(IPCClient client, User user) {}
+    
+    default void onPacketReceived(IPCClient client, Packet packet) {}
 }

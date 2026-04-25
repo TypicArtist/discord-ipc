@@ -12,7 +12,7 @@ public class UnixConnection extends Connection {
     }
 
     @Override
-    public boolean open(int index) {
+    public boolean openChannel(int index) {
         String tempPath = getTempPath();
         UnixDomainSocketAddress addr = UnixDomainSocketAddress.of(String.format("%s/discord-ipc-%d", tempPath, index));
         try {

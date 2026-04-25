@@ -13,7 +13,7 @@ public class WinConnection extends Connection {
     }
 
     @Override
-    public boolean open(int index) {
+    public boolean openChannel(int index) {
         Path path = Path.of(String.format("\\\\.\\pipe\\discord-ipc-%d", index));
         try {
             channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE);

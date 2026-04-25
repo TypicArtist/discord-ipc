@@ -7,12 +7,15 @@ import java.nio.channels.Channel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import net.typicartist.discordipc.IPCClient;
 import net.typicartist.discordipc.IPCListener;
+import net.typicartist.discordipc.data.Callback;
 import net.typicartist.discordipc.data.Packet;
 import net.typicartist.discordipc.data.User;
 import net.typicartist.discordipc.enums.Command;
@@ -32,6 +35,7 @@ public abstract class Connection implements AutoCloseable {
     protected final long clientId;
     protected IPCListener listener;
     protected DiscordBuild build;
+    protected Map<String, Callback> callbacks = new ConcurrentHashMap<>();
 
     public static Connection create(IPCClient client, long clientId) {
         String os = System.getProperty("os.name").toLowerCase();
@@ -45,7 +49,7 @@ public abstract class Connection implements AutoCloseable {
         this.clientId = clientId;
     }
 
-    public abstract boolean open(int index);
+    public abstract boolean openChannel(int index);
 
     public void open(DiscordBuild ...preferredOrder) throws IOException, JSONException, InterruptedException {
         if (state == State.Connected) return;
@@ -54,22 +58,28 @@ public abstract class Connection implements AutoCloseable {
             preferredOrder = new DiscordBuild[]{DiscordBuild.ANY};
 
         for (int i = 0; i <= 9; i++) {
-            if (!open(i)) continue;
+            if (!openChannel(i)) continue;
 
-            state = State.Connecting;
-
-            if (state != State.SentHandshake) {
-                JSONObject handshake = new JSONObject().put("v", RPC_VERSION).put("client_id", String.valueOf(clientId));
-                if (!sendPacket(new Packet(Opcode.Handshake, handshake))) {
-                    close();
-                    continue;
-                }
+            JSONObject handshake = new JSONObject()
+                    .put("v", RPC_VERSION)
+                    .put("client_id", String.valueOf(clientId));
+            
+            if (!sendPacket(new Packet(Opcode.Handshake, handshake))) {
+                close();
+                continue;
             }
 
             state = State.SentHandshake;
-            Packet packet = readPacket();
-            JSONObject json = packet.getJson();
 
+            Packet packet;
+            try {
+                packet = readPacket();
+            } catch (IOException | InterruptedException e) {
+                close();
+                continue;
+            }
+
+            JSONObject json = packet.getJson();
             Command cmd = Command.of(json.optString("cmd"));
             Event evt = Event.of(json.optString("evt"));
 
@@ -78,7 +88,6 @@ public abstract class Connection implements AutoCloseable {
 
                 JSONObject data = json.getJSONObject("data");
                 build = DiscordBuild.from(data.optJSONObject("config").optString("api_endpoint"));
-    
 
                 if (build == preferredOrder[0] || preferredOrder[0] == DiscordBuild.ANY) {
                     if (listener != null) {
@@ -90,6 +99,7 @@ public abstract class Connection implements AutoCloseable {
 
             close();
         }
+
         throw new IOException("No Discord IPC pipe available");
     }
 
@@ -102,15 +112,25 @@ public abstract class Connection implements AutoCloseable {
         return true;
     }
 
-    protected void readFully(byte[] data, int offset, int length) throws IOException {
+    protected void readFully(byte[] data, int offset, int length) throws IOException, InterruptedException {
         if (!(channel instanceof ReadableByteChannel rch) || !channel.isOpen())
-            throw new IOException("Not readable");
+           throw new IOException("Not readable");
 
         ByteBuffer buffer = ByteBuffer.wrap(data, offset, length);
+        int attempts = 0;
         while (buffer.hasRemaining()) {
             int r = rch.read(buffer);
+
             if (r < 0) throw new IOException("Pipe closed");
-            else if (r == 0) Thread.yield();
+            
+            if (r == 0) {
+                if (++attempts > 100)  {
+                    throw new IOException("Read timeout");
+                }
+                Thread.sleep(1);
+            } else {
+                attempts = 0;
+            }
         }
     }
 
@@ -126,7 +146,7 @@ public abstract class Connection implements AutoCloseable {
         } catch (Exception ignored) { return false; }
     }
 
-    public Packet readPacket() throws IOException, JSONException {
+    public Packet readPacket() throws IOException, JSONException, InterruptedException {
         byte[] header = new byte[8];
         readFully(header, 0, 8);
        
@@ -156,7 +176,7 @@ public abstract class Connection implements AutoCloseable {
     }
 
     public boolean isOpen() {
-        return channel != null && channel.isOpen();
+        return channel != null && channel.isOpen() && state == State.Connected;
     }
 
     public void setListener(IPCListener listener) {

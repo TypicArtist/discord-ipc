@@ -41,6 +41,8 @@ public class User {
     }
 
     public static class Avatar {
+        private final String BASE =  "https://cdn.discordapp.com/avatar";
+
         private final String id;
         private final String hash;
         
@@ -57,13 +59,13 @@ public class User {
             return null;
         }
 
-        private enum DefaultAvatar {
-            A("");
+        private enum Default {
+            A("9855d7e3b9780976");
 
 
             private final String hash;
 
-            DefaultAvatar(String hash) {
+            Default(String hash) {
                 this.hash = hash;
             }
         }
