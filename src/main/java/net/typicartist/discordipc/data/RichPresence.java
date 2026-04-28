@@ -1,173 +1,127 @@
 package net.typicartist.discordipc.data;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import net.typicartist.discordipc.enums.PartyPrivacy;
-
 public class RichPresence {
-    private String state;
-    private String details;
-    private Timestamps timestamps;
-    private Assets assets;
-    private Party party;
-    private Secrets secrets;
-    private int instance;
+    private final String state;
+    private final String details;
+    private final Long startTimestamp;
+    private final Long endTimestamp;
+    private final String largeImageKey;
+    private final String largeImageText;
+    private final String smallImageKey;
+    private final String smallImageText;
+    private final String partyId;
+    private final int partySize;
+    private final int partyMax;
+    private final String matchSecret;
+    private final String joinSecret;
+    private final String spectateSecret;
+    private final boolean instance;
 
-    public RichPresence setState(String state) {
-        this.state = state;
-        return this;
+    public RichPresence(Builder builder) {
+        this.state = builder.state;
+        this.details = builder.details;
+        this.startTimestamp = builder.startTimestamp;
+        this.endTimestamp = builder.endTimestamp;
+        this.largeImageKey = builder.largeImageKey;
+        this.largeImageText = builder.largeImageText;
+        this.smallImageKey = builder.smallImageKey;
+        this.smallImageText = builder.smallImageText;
+        this.partyId = builder.partyId;
+        this.partySize = builder.partySize;
+        this.partyMax = builder.partyMax;
+        this.matchSecret = builder.matchSecret;
+        this.joinSecret = builder.joinSecret;
+        this.spectateSecret = builder.spectateSecret;
+        this.instance = builder.instance;
     }
 
-    public RichPresence setDetails(String details) {
-        this.details = details;
-        return this;
-    }
-
-    public RichPresence setTimestamps(Timestamps timestamps) {
-        this.timestamps = timestamps;
-        return this;
-    }
-
-    public RichPresence setParty(Party party) {
-        this.party = party;
-        return this;
-    }
-
-    public RichPresence setSecrets(Secrets secrets) {
-        this.secrets = secrets;
-        return this;
-    }
-
-    public RichPresence setInstance(int instance) {
-        this.instance = instance;
-        return this;
-    }
-
-    public JSONObject toJson() throws JSONException {
+    public JSONObject toJson() {
         JSONObject json = new JSONObject();
+        try {
+            if (state != null) json.put("state", state);
+            if (details != null) json.put("details", details);
+        
+            if (startTimestamp != null || endTimestamp != null) {
+                JSONObject timestamps = new JSONObject();
+                if (startTimestamp != null) json.put("start", startTimestamp);
+                if (endTimestamp != null) json.put("end", endTimestamp);
+                json.put("timestamps", timestamps);
+            }
 
-        if (state != null) json.put("state", state);
-        if (details != null) json.put("details", details);
+            if (largeImageKey != null || smallImageKey != null) {
+                JSONObject assets = new JSONObject();
+                if (largeImageKey != null) assets.put("largeImageKey", largeImageKey); 
+                if (largeImageText != null) assets.put("largeImageText", largeImageText); 
+                if (smallImageKey != null) assets.put("smallImageKey", smallImageKey); 
+                if (smallImageText != null) assets.put("smallImageText", smallImageText); 
+                json.put("assets", assets);
+            }
 
-        if (timestamps != null) {
-            if (timestamps.start > 0) json.put("startTimestamp", timestamps.start);
-            if (timestamps.end > 0) json.put("endTimestamp", timestamps.end);
+            if (partyId != null) {
+                JSONObject party = new JSONObject();
+                party.put("id", partyId);
+                if (partySize > 0 && partyMax > 0) {
+                    party.put("size", new JSONArray().put(partySize).put(partyMax));
+                }
+                party.put("party", party);
+            }
+
+            if (matchSecret != null || joinSecret != null || spectateSecret != null) {
+                JSONObject secrets = new JSONObject();
+                if (matchSecret != null) secrets.put("match", matchSecret);
+                if (joinSecret!= null) secrets.put("join", joinSecret); 
+                if (spectateSecret != null) secrets.put("spectate", spectateSecret);
+                json.put("secrets", secrets);
+            }
+
+            json.put("instance", instance);
+        } catch (JSONException e) {
+            e.printStackTrace();
         }
-
-        if (assets != null) {
-            if (assets.largeImageKey != null) json.put("largeImageKey", assets.largeImageKey); 
-            if (assets.largeImageText != null) json.put("largeImageText", assets.largeImageText); 
-            if (assets.smallImageKey != null) json.put("smallImageKey", assets.smallImageKey); 
-            if (assets.smallImageText != null) json.put("smallImageText", assets.smallImageText); 
-        }
-
-        if (party != null) {
-            if (party.id != null) json.put("partyId", party.id);
-            if (party.size > 0) json.put("partySize", party.size);
-            if (party.max > 0) json.put("partyMax", party.max);
-            json.put("partyPrivacy", party.privacy.ordinal());
-        }
-
-        if (secrets != null) {
-            if (secrets.match != null) json.put("matchSecret", secrets.match);
-            if (secrets.join != null) json.put("joinSecret", secrets.join); 
-            if (secrets.spectate != null) json.put("spectateSecret", secrets.spectate); 
-        }
-
-        if (instance > 0) json.put("instance", instance);
-
         return json;
     }
 
-    public static class Assets {
+    public static class Builder {
+        private String state;
+        private String details;
+        private long startTimestamp;
+        private long endTimestamp;
         private String largeImageKey;
         private String largeImageText;
         private String smallImageKey;
         private String smallImageText;
-
-        public Assets setLargeImageKey(String largeImageKey) {
-            this.largeImageKey = largeImageKey;
-            return this;
+        private String partyId;
+        private int partySize;
+        private int partyMax;
+        private String matchSecret;
+        private String joinSecret;
+        private String spectateSecret;
+        private boolean instance;
+        
+        public Builder setState(String state) { this.state = state; return this; }
+        public Builder setDetails(String details) { this.details = details; return this; }
+        public Builder setStartTimestamp(long startTimestamp) { this.startTimestamp = startTimestamp; return this; }
+        public Builder setEndTimestamp(long endTimestamp) { this.endTimestamp = endTimestamp; return this; }
+        public Builder setLargeImage(String key, String text) { 
+            this.largeImageKey = key; this.largeImageText = text; return this;
         }
-
-        public Assets setLargeImageText(String largeImageText) {
-            this.largeImageText = largeImageText;
-            return this;
+        public Builder setSmallImage(String key, String text) {
+            this.smallImageKey = key; this.smallImageText = text; return this;
         }
-
-        public Assets setSmallimageKey(String smallImageKey) {
-            this.smallImageKey = smallImageKey;
-            return this;
+        public Builder setParty(String id, int size, int max) {
+            this.partyId = id; this.partySize = size; this.partyMax = max; return this;
         }
+        public Builder setMatchSecret(String matchSecret) { this.matchSecret = matchSecret; return this; }
+        public Builder setJoinSecret(String joinSecret) { this.joinSecret = joinSecret; return this; }
+        public Builder setSpectateSecret(String spectateSecret) { this.spectateSecret = spectateSecret; return this; }
+        public Builder setInstance(boolean instance) { this.instance = instance; return this; }
 
-        public Assets setSmallmageText(String smallImageText) {
-            this.smallImageText = smallImageText;
-            return this;
-        }
-    }
-    
-    public static class Party {
-        private String id;
-        private int size;
-        private int max;
-        private PartyPrivacy privacy;
-
-        public Party setId(String id) {
-            this.id = id;
-            return this;
-        }
-
-        public Party setSize(int size) {
-            this.size = size;
-            return this;
-        }
-
-        public Party setMax(int max) {
-            this.max = max;
-            return this;
-        }
-
-        public Party setPrivacy(PartyPrivacy privacy) {
-            this.privacy = privacy;
-            return this;
-        }
-    }
-
-
-    public static class Timestamps {
-        private long start;
-        private long end;
-
-        public Timestamps setStart(long start) {
-            this.start = start;
-            return this;
-        }
-
-        public Timestamps setEnd(long end) {
-            this.end = end;
-            return this;
-        }
-    }
-
-    public static class Secrets {
-        private String match;
-        private String join;
-        private String spectate;
-
-        public Secrets setMatch(String match) {
-            this.match = match;
-            return this;
-        }
-
-        public Secrets setJoin(String join) {
-            this.join = join;
-            return this;
-        }
-
-        public Secrets setSpectate(String spectate) {
-            this.spectate = spectate;
-            return this;
+        public RichPresence build() {
+            return new RichPresence(this);
         }
     }
 }

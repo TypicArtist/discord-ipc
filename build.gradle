@@ -12,9 +12,7 @@ repositories {
 
 dependencies {
     implementation 'org.json:json:20090211'
-
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.12.1'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    implementation 'org.slf4j:slf4j-api:2.0.7'
 }
 
 java {
@@ -22,10 +20,6 @@ java {
 
 	sourceCompatibility = JavaVersion.VERSION_21
 	targetCompatibility = JavaVersion.VERSION_21
-}
-
-test {
-    useJUnitPlatform()
 }
 
 publishing {

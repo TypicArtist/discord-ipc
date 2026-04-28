@@ -1,27 +1,46 @@
 package net.typicartist.discordipc.connection;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.io.RandomAccessFile;
 
 import net.typicartist.discordipc.IPCClient;
 
 public class WinConnection extends Connection {
+    private RandomAccessFile pipe;
+
     public WinConnection(IPCClient client, long clientId) {
         super(client, clientId);
     }
 
     @Override
-    public boolean openChannel(int index) {
-        Path path = Path.of(String.format("\\\\.\\pipe\\discord-ipc-%d", index));
-        try {
-            channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE);
-            if (channel.isOpen()) {
-                return true;
-            }
-        } catch (IOException ignored) {}
+    public void open(int index) throws IOException {
+        pipe = new RandomAccessFile("\\\\.\\pipe\\discord-ipc-" + index, "rw");
+    }
 
-        return false;
+    @Override
+    protected int read(byte[] buf, int offset, int len) throws IOException {
+        return pipe.read(buf, offset, len);
+    }
+
+    @Override
+    protected void write(byte[] data) throws IOException {
+        pipe.write(data);
+    }
+
+    @Override
+    public boolean isOpen() {
+        return pipe != null && pipe.getChannel().isOpen() && super.isOpen();
+    }
+
+    @Override
+    public void close() throws IOException {
+        try {
+            if (pipe != null) {
+                pipe.close();
+                pipe = null;
+            }
+        } finally {
+            super.close();
+        }
     }
 }

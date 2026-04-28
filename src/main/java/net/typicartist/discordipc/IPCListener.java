@@ -12,4 +12,5 @@ public interface IPCListener {
     default void onJoinRequest(IPCClient client, User user) {}
     
     default void onPacketReceived(IPCClient client, Packet packet) {}
+    default void onPacketSent(IPCClient client, Packet packet) {}
 }

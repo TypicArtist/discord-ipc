@@ -19,11 +19,10 @@ public enum Event {
     }
 
     public static Event of(String value) {
-        for (Event e : values()) {
-            if (e != UNKNOWN && e.name().equalsIgnoreCase(value)) {
-                return e;
-            }
+        try {
+            return valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return UNKNOWN;
         }
-        return UNKNOWN;
     }
 }
